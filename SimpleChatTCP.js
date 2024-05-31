@@ -15,8 +15,12 @@ const {
   getPrivateMessage,
 } = require('./functions');
 
+const InactiveUser = require('./InactiveUser');
+
 const port = 5050;
 const host = '127.0.0.1';
+const timeoutSec = 120;
+const iUser = new InactiveUser(timeoutSec);
 
 let users = []; // vector of socket objects
 let usersMap = {}; // map of users connected to the server
@@ -68,6 +72,7 @@ function parseMessageAndSend(user, msg) {
     const nickname = getNameFromMsg(message);
     setNickname(user, nickname);
     sendMsgToAll(users, `${colorBlue(`${oldID} is now ${nickname}`)}\n`);
+    iUser.renameInactiveUser(oldID, nickname);
   } else if (message.startsWith('/pvt ')) {
     const [receiver, privateMsg] = getPrivateMessage(message);
     const receiverUser = getUserByName(users, receiver);
@@ -99,14 +104,23 @@ serverTCP.on('connection', function (user) {
   users.push(user);
   setNickname(user, getUserID(user));
   sendMsgToAll(users, loginMessage(user));
+  iUser.setInactiveUser(getUserID(user));
 
   user.on('data', function (data) {
+    iUser.toggleActiveUser(getNickname(user));
     parseMessageAndSend(user, data.toString());
+  });
+
+  iUser.on('inactive_user', (nickname) => {
+    console.log(`${nickname} is a lurker!`);
+    const user = getUserByName(users, nickname);
+    user.resetAndDestroy();
   });
 
   user.on('close', function () {
     users = excludeSameUser(users, user);
     sendMsgToAll(users, logoutMessage(user));
     console.log('CLOSED: ' + getUserID(user));
+    iUser.deleteInactiveUser(getNickname(user));
   });
 });
